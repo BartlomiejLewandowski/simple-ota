@@ -1,0 +1,86 @@
+service: ota-lamp-python
+frameworkVersion: '3'
+useDotenv: true
+provider:
+  name: aws
+  runtime: python3.9
+  region: 'eu-central-1'
+  environment:
+    DYNAMODB_TABLE: "${self:service}-dev"
+    UPLOAD_SECRET: "${env:UPLOAD_SECRET}"
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource: arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}
+
+# you can define service wide environment variables here
+#  environment:
+#    variable1: value1
+
+functions:
+  hello:
+    handler: handler.handle
+    events:
+      - httpApi:
+          path: /otaVersion/{key}
+          method: get
+      - httpApi:
+          path: /otaVersion
+          method: post
+
+#    Define function environment variables here
+#    environment:
+#      variable2: value2
+
+resources:
+  Resources:
+    TodosDynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      DeletionPolicy: Retain
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: key
+            AttributeType: S
+        KeySchema:
+          - AttributeName: key
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: "${self:provider.environment.DYNAMODB_TABLE}"
+
+    OtaLampBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: "${env:BUCKET_NAME}"
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+        OwnershipControls:
+          Rules:
+            - ObjectOwnership: ObjectWriter
+    OtaLampBucketAllowPublicReadPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref OtaLampBucket
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - "s3:GetObject"
+              Resource: !Sub "arn:aws:s3:::${env:BUCKET_NAME}/*"
+              Principal: "*"
+plugins:
+  - "@serverless-aws/serverless-s3-remover"
+custom:
+  remover:
+    buckets:
+      - ${env:BUCKET_NAME}
